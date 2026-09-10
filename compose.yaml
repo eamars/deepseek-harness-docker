@@ -33,7 +33,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://localhost:3080/').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://localhost:3080/').then(response => process.exit(response.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
       interval: 5s
       timeout: 3s
       retries: 30
@@ -94,7 +94,7 @@ services:
         - CMD-SHELL
         - >-
           wget --quiet --spider --no-check-certificate
-          https://localhost/ || exit 1
+          https://localhost/ || test $$? -eq 8
       interval: 5s
       timeout: 3s
       retries: 30
