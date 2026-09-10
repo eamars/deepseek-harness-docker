@@ -2,9 +2,9 @@
 # for node-gyp native builds and in-container development use.
 FROM node:24-trixie-slim
 
-ARG DSH_VERSION=0.1.2-rc.1
+ARG DSH_VERSION=0.1.5-rc.1
 ARG DSH_MARKET_VERSION=1.45.1
-ARG PNPM_VERSION=10.34.5
+ARG PNPM_VERSION=12.3.4
 
 ENV NODE_ENV=production \
     DSH_HOME=/var/lib/dsh \
@@ -57,23 +57,40 @@ RUN npm install --global --no-audit --no-fund --foreground-scripts \
 # tell the browser-side connection that it is on a loopback authority. The LAN
 # firewall remains the deployment access boundary, matching this repo's existing
 # all-interface design.
+# This LAN deployment deliberately removes DSH's browser token/cookie gate; the
+# Docker host/LAN boundary is the access boundary for this instance.
 RUN node -e '\
   const fs = require("node:fs");\
-  const path = require.resolve("@deepseek-ai/dsh-client-connection/client", {\
+  const clientPath = require.resolve("@deepseek-ai/dsh-client-connection/client", {\
     paths: ["/usr/local/lib/node_modules/@deepseek-ai/dsh"]\
   });\
-  const file = fs.readFileSync(path, "utf8");\
+  const clientFile = fs.readFileSync(clientPath, "utf8");\
   const pattern = /isLoopback:\s*(?:transport\?\.ownsHost === true \|\| )?pageLocation === void 0 \|\| isLoopbackHostname\(pageLocation\.hostname\),/;\
-  if (!pattern.test(file)) {\
+  if (!pattern.test(clientFile)) {\
     throw new Error("dsh client-connection loopback expression not found; update the Dockerfile patch");\
   }\
-  fs.writeFileSync(path, file.replace(pattern, "isLoopback: true,"));\
+  fs.writeFileSync(clientPath, clientFile.replace(pattern, "isLoopback: true,"));\
+  const serverPath = require.resolve("@deepseek-ai/dsh-client-connection", {\
+    paths: ["/usr/local/lib/node_modules/@deepseek-ai/dsh"]\
+  });\
+  let serverFile = fs.readFileSync(serverPath, "utf8");\
+  const replaceMethod = (name, params, body) => {\
+    const start = serverFile.indexOf("\n\t" + name + "(" + params + ") {");\
+    const end = start < 0 ? -1 : serverFile.indexOf("\n\t}", start);\
+    if (start < 0 || end < 0) {\
+      throw new Error("dsh client-connection " + name + " method not found; update the LAN auth patch");\
+    }\
+    serverFile = serverFile.slice(0, start) + "\n\t" + name + "(" + params + ") {\n\t\t" + body + "\n\t}" + serverFile.slice(end + 3);\
+  };\
+  replaceMethod("authenticatedUrl", "baseUrl", "const url = new URL(baseUrl); url.pathname = \"/\"; url.search = \"\"; url.hash = \"\"; return url.href;");\
+  replaceMethod("authorizeIndex", "req, res", "return true;");\
+  replaceMethod("isAuthenticated", "request", "return true;");\
+  fs.writeFileSync(serverPath, serverFile);\
 '
 
-# The DSH plugin manager delegates profile installs to pnpm. Pin the major
-# version because pnpm 10's build-script approval behavior is part of the
-# plugin install contract.
-RUN npm install --global --no-audit --no-fund "pnpm@${PNPM_VERSION}"
+# The DSH plugin manager delegates profile installs to pnpm. Pin the tested
+# version because its plugin-install behavior is part of the runtime contract.
+RUN npm install --global --no-audit --no-fund --allow-scripts=pnpm "pnpm@${PNPM_VERSION}"
 
 RUN mkdir --parents /var/lib/dsh /workspace /opt/dsh \
  && chown --recursive dsh:dsh /var/lib/dsh /workspace /opt/dsh /home/dsh
