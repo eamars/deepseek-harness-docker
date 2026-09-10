@@ -26,9 +26,10 @@ left intact and market updates made from the Web UI are preserved. The market
 package and pnpm versions can be overridden in `.env` with
 `DSH_MARKET_VERSION` and `PNPM_VERSION`.
 
-The Web overlay also enables the built-in `dsh-schedule` module and its
-time-context companion. These are part of the pinned DSH release and do not
-require a separate market install or Docker service.
+The Web overlay enables the built-in `dsh-schedule` module. The optional
+`dsh-time-context` module is intentionally not mounted, so new cycles do not
+receive an extra time-context prompt. Schedule reminders remain enabled and
+persist in the session event log; they do not depend on time-context.
 
 ## Portainer deployment
 
@@ -67,9 +68,10 @@ entrypoint can install the pinned market package into the persistent profile.
 The model can use `schedule_create`, `schedule_list`, and `schedule_delete` to
 create reminders. Schedule supports positive `after_seconds` delays, explicit
 absolute `at` targets, and fixed-rate `every_seconds` intervals of at least five
-minutes. Absolute local times must include an explicit `UTC` or IANA time zone;
-the time-context plugin helps the model interpret browser-local natural language
-but does not supply a persistent default zone.
+minutes. Absolute local times must include an explicit `UTC` or IANA time zone.
+The optional time-context plugin can help interpret browser-local natural
+language, but it is disabled in this deployment and never supplies a persistent
+default zone.
 
 Reminders belong to their original Harness Session and persist with the
 session event log in `dsh-home`. Delivery is session-local: the Session must
@@ -105,7 +107,7 @@ time the stack is started or refreshed.
 
 ## Settings → Models over LAN
 
-Upstream DSH `0.1.1-rc.2` moved settings, credentials, and model discovery
+Upstream DSH `0.1.2-rc.1` moved settings, credentials, and model discovery
 behind the browser-side loopback check. This image patches the served
 `dsh-client-connection` client bundle during `docker build` to treat the
 browser as loopback (`isLoopback: true`). Combined with Caddy's existing

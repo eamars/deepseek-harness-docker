@@ -6,12 +6,9 @@
     host: 0.0.0.0
     port: 3080
 
-# Opt into the official session-local Schedule tools. Time-context is optional
-# for Schedule itself, but lets the model interpret browser-local times before
-# it submits an explicit zone to schedule_create.
+# Opt into the official session-local Schedule tools. Schedule persists its
+# reminders independently, so the optional time-context plugin is not mounted
+# and cannot add a prompt on every new cycle.
 - insert:
-    - id: time-context
-      name: '@deepseek-ai/dsh-time-context'
-
     - id: schedule
       name: '@deepseek-ai/dsh-schedule'
