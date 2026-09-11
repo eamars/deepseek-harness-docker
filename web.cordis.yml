@@ -12,3 +12,9 @@
 - insert:
     - id: schedule
       name: '@deepseek-ai/dsh-schedule'
+
+# The Web bundle already contains this row but disables it by default. It is a
+# read-only catalog of active reminders; the Schedule tools create and delete
+# reminders.
+- id: ui-schedule
+  disabled: false
