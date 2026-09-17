@@ -42,6 +42,9 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: deepseek-harness-https
+    # BusyBox wget can orphan its ssl_client helper during HTTPS checks.
+    # Reap those children so they cannot retain seccomp/BPF kernel resources.
+    init: true
     depends_on:
       deepseek-harness:
         condition: service_healthy

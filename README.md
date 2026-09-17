@@ -20,11 +20,11 @@ When `DSH_WORKSPACE` is unset, Docker Compose uses the named `dsh-workspace`
 volume. The DSH application data and configuration remain in the separate
 `dsh-home` volume mounted at `/var/lib/dsh`.
 
-The image installs pnpm and bootstraps `dshmarket` into the `web` profile on
-first start. The bootstrap is idempotent, so an existing `dsh-home` volume is
-left intact and market updates made from the Web UI are preserved. The market
-package and pnpm versions can be overridden in `.env` with
-`DSH_MARKET_VERSION` and `PNPM_VERSION`.
+The image installs pnpm and ensures the pinned `dshmarket` version is installed
+in the `web` profile on each start. Existing settings and sessions are retained,
+but a different market version installed from the Web UI is replaced by the
+image's pin at the next restart. Override `DSH_MARKET_VERSION` and `PNPM_VERSION`
+in `.env` (or the Portainer stack environment) and rebuild to change these pins.
 
 The Web overlay enables the built-in `dsh-schedule` module. The optional
 `dsh-time-context` module is intentionally not mounted, so new cycles do not
@@ -171,20 +171,59 @@ Firefox settings. Caddy's certificate storage is persisted in the
 For a clean rebuild with detailed build output:
 
 ```powershell
-docker compose build --no-cache --progress=plain
-docker compose up -d
+docker compose --progress plain build --no-cache
+if ($LASTEXITCODE -eq 0) { docker compose up -d --no-build --pull never }
 ```
 
 ## Stop and upgrade
 
+Build before replacing the running containers, so a failed build does not take
+the existing application offline:
+
 ```powershell
-docker compose down
-docker compose up --build -d
+docker compose build
+if ($LASTEXITCODE -eq 0) { docker compose up -d --no-build --pull never }
 ```
+
+Back up `dsh-home` before an upgrade: the entrypoint may migrate persistent
+presets and install a new market version. Stop the stack separately with
+`docker compose down` when needed.
 
 The named volumes are preserved by `docker compose down`. Do not add `-v`
 unless you intend to remove the persisted Harness settings, credentials,
 sessions, workspace, and local certificate authority.
+
+## Health checks and failed builds
+
+Keep `init: true` on both services. Caddy's BusyBox HTTPS health check can leave
+an orphaned `ssl_client` helper; Docker's init process reaps it. Without init,
+repeated checks can accumulate zombie processes that retain seccomp/BPF kernel
+resources. This can eventually break unrelated container execution and builds,
+even while the web application still answers requests.
+
+If both containers become unhealthy and `docker exec` reports
+`error loading seccomp filter into kernel` / `errno 524`, inspect the health
+logs and process tree before changing application dependencies:
+
+```sh
+docker inspect --format '{{json .State.Health}}' deepseek-harness-https
+docker top deepseek-harness-https -eo pid,ppid,stat,comm
+```
+
+For this specific failure, update the stack to include Caddy's `init: true`
+and recreate only Caddy using its existing local image:
+
+```sh
+docker compose up -d --no-deps --no-build --pull never --force-recreate caddy
+```
+
+Run this with the original Compose project name and environment (including
+`--env-file stack.env` for a Portainer-generated environment file, if using
+the CLI). Recreating Caddy briefly interrupts HTTPS but preserves its named
+certificate volumes. Confirm that `docker exec deepseek-harness /bin/true`
+works again, then retry the build. A restart alone releases the accumulated
+resources but does not enable init; recreating with the fixed configuration
+prevents recurrence. Do not disable seccomp to hide this failure.
 
 ## Upstream references
 

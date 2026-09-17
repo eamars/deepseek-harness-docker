@@ -3,6 +3,7 @@
 .env
 .env.*
 !.env.example
+stack.env
 node_modules
 workspace
 workspace/**
