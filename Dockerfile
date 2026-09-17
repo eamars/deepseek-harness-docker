@@ -2,9 +2,9 @@
 # for node-gyp native builds and in-container development use.
 FROM node:24-trixie-slim
 
-ARG DSH_VERSION=0.1.5-rc.1
-ARG DSH_MARKET_VERSION=1.45.1
-ARG PNPM_VERSION=12.3.4
+ARG DSH_VERSION=0.1.5-rc.2
+ARG DSH_MARKET_VERSION=1.47.0
+ARG PNPM_VERSION=12.4.2
 
 ENV NODE_ENV=production \
     DSH_HOME=/var/lib/dsh \
