@@ -108,13 +108,16 @@ time the stack is started or refreshed.
 ## Settings → Models over LAN
 
 Upstream DSH `0.1.2-rc.1` moved settings, credentials, and model discovery
-behind the browser-side loopback check. This image patches the served
-`dsh-client-connection` client bundle during `docker build` to treat the
-browser as loopback (`isLoopback: true`). Combined with Caddy's existing
-`header_up Host localhost:3080` / `Origin http://localhost:3080`, both the
-server-side and client-side loopback checks pass, so **Settings → Models**
-works from the LAN HTTPS URL again without pinning an older DSH version or
-using an SSH tunnel.
+behind loopback checks; DSH `0.1.7-rc.2` also requires a browser token/cookie
+for page and RPC access. This image patches the served
+`dsh-client-connection` bundle during `docker build`: the browser reports
+loopback (`isLoopback: true`), and the server's page/RPC authentication methods
+are replaced with the LAN deployment's unauthenticated policy. The patch is
+checked against the pinned package's method signatures and fails the build if
+upstream changes them. Combined with Caddy's existing `header_up Host
+localhost:3080` / `Origin http://localhost:3080`, the server-side Host/Origin
+trust check passes and **Settings → Models** works from the LAN HTTPS URL
+without an SSH tunnel.
 
 This matches the existing trust posture of this deployment: the LAN firewall
 is the access boundary. If you prefer upstream's stricter loopback-only
@@ -150,6 +153,18 @@ case. Provider settings and UI-entered credentials persist in the `dsh-home`
 volume. An inherited `DEEPSEEK_API_KEY` has operator precedence and is
 read-only in the UI, so leave that environment value empty when the Models
 page should own the official DeepSeek credential.
+
+### Vision models
+
+DSH only offers image attachment for models that explicitly declare image
+input. OpenAI-compatible `/v1/models` discovery does not provide all of DSH's
+per-model capability and request-compatibility fields. For each Qwen3.8
+Flash-Next FreeToken vision model, keep a distinct model ID and set
+`input: [text, image]`, `contextWindow: 262144`, reasoning efforts `low`,
+`medium`, and `xhigh`, and `compat.supportsDeveloperRole: false`. Keep the
+provider's `defaultInput: [text]` when text-only models share that provider.
+These model fields persist in `dsh-home`; do not replace the provider's model
+array when adding a vision entry.
 
 ### Local certificate
 

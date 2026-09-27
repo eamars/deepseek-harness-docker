@@ -2,7 +2,7 @@
 # for node-gyp native builds and in-container development use.
 FROM node:24-trixie-slim
 
-ARG DSH_VERSION=0.1.5-rc.2
+ARG DSH_VERSION=0.1.7-rc.2
 ARG DSH_MARKET_VERSION=1.47.0
 ARG PNPM_VERSION=12.4.2
 
@@ -17,6 +17,8 @@ RUN apt-get update \
       bash \
       build-essential \
       ca-certificates \
+      can-utils \
+      cmake \
       curl \
       dnsutils \
       file \
@@ -25,6 +27,10 @@ RUN apt-get update \
       iputils-ping \
       jq \
       less \
+      libgmock-dev \
+      libgtest-dev \
+      libspdlog-dev \
+      libyaml-cpp-dev \
       netcat-openbsd \
       openssh-client \
       pkg-config \
@@ -83,7 +89,7 @@ RUN node -e '\
     serverFile = serverFile.slice(0, start) + "\n\t" + name + "(" + params + ") {\n\t\t" + body + "\n\t}" + serverFile.slice(end + 3);\
   };\
   replaceMethod("authenticatedUrl", "baseUrl", "const url = new URL(baseUrl); url.pathname = \"/\"; url.search = \"\"; url.hash = \"\"; return url.href;");\
-  replaceMethod("authorizeIndex", "req, res", "return true;");\
+  replaceMethod("authorizeIndex", "request, response", "return true;");\
   replaceMethod("isAuthenticated", "request", "return true;");\
   fs.writeFileSync(serverPath, serverFile);\
 '
