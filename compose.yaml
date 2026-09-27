@@ -5,7 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         DSH_VERSION: ${DSH_VERSION:-0.1.7-rc.2}
-        DSH_MARKET_VERSION: ${DSH_MARKET_VERSION:-1.47.0}
+        DSH_MARKET_VERSION: ${DSH_MARKET_VERSION:-1.66.2}
         PNPM_VERSION: ${PNPM_VERSION:-12.4.2}
 
     image: deepseek-harness:local
