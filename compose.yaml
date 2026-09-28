@@ -1,5 +1,9 @@
 services:
   deepseek-harness:
+    # The toolchain and host development packages are installed for amd64;
+    # arm64 libraries are added as the Raspberry Pi target architecture.
+    platform: linux/amd64
+
     build:
       context: .
       dockerfile: Dockerfile
@@ -22,6 +26,7 @@ services:
 
     volumes:
       - dsh-home:/var/lib/dsh
+      - ccache-cache:/var/cache/ccache
       - ${DSH_WORKSPACE:-dsh-workspace}:/workspace
 
     working_dir: /workspace
@@ -107,6 +112,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  ccache-cache:
   dsh-home:
   dsh-workspace:
   caddy-data:

@@ -31,6 +31,43 @@ The Web overlay enables the built-in `dsh-schedule` module. The optional
 receive an extra time-context prompt. Schedule reminders remain enabled and
 persist in the session event log; they do not depend on time-context.
 
+## Raspberry Pi 5 cross compilation
+
+The Harness image includes the AArch64 cross compiler, CMake, Ninja, ccache,
+and the `yaml-cpp` and `spdlog` development packages for both amd64 build tools
+and arm64 target binaries. The Compose stack keeps ccache data in the
+`ccache-cache` volume across container replacements.
+
+The service runs as `linux/amd64` to match the compiler host and native
+development packages; deploy it on an amd64 Linux Docker host for native
+performance. An arm64 Docker host needs amd64 emulation enabled.
+
+Open a shell in the service:
+
+```sh
+docker compose exec deepseek-harness bash
+```
+
+From that shell, configure a CMake project for Raspberry Pi 5's 64-bit Linux
+userspace and build it with the cross compiler:
+
+```sh
+cmake -S /workspace/your-project -B /workspace/your-project/build/rpi5 -G Ninja \
+  -DCMAKE_SYSTEM_NAME=Linux \
+  -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+  -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+  -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+  -DCMAKE_C_COMPILER_LAUNCHER=ccache \
+  -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+cmake --build /workspace/your-project/build/rpi5 --parallel
+file /workspace/your-project/build/rpi5/your-binary
+```
+
+Build and deploy the updated image with `docker compose build deepseek-harness`
+followed by `docker compose up -d --no-build --pull never`. The `file` command
+should report an ARM aarch64 executable. This toolchain targets 64-bit Raspberry
+Pi OS/Linux userspace; it does not execute the result on the Docker host.
+
 ## Portainer deployment
 
 Deploy this directory or its Git repository as a stack on a Linux Docker

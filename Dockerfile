@@ -10,28 +10,37 @@ ENV NODE_ENV=production \
     DSH_HOME=/var/lib/dsh \
     HOME=/home/dsh \
     npm_config_python=/usr/bin/python3 \
-    DSH_MARKET_VERSION=${DSH_MARKET_VERSION}
+    DSH_MARKET_VERSION=${DSH_MARKET_VERSION} \
+    CCACHE_DIR=/var/cache/ccache
 
-RUN apt-get update \
+RUN dpkg --add-architecture arm64 \
+ && apt-get update \
  && apt-get install --yes --no-install-recommends \
       bash \
       build-essential \
       ca-certificates \
       can-utils \
+      ccache \
       cmake \
       curl \
       dnsutils \
       file \
       git \
+      gcc-aarch64-linux-gnu \
+      g++-aarch64-linux-gnu \
       iproute2 \
       iputils-ping \
       jq \
       less \
-      libgmock-dev \
-      libgtest-dev \
-      libspdlog-dev \
-      libyaml-cpp-dev \
+      libc6-dev-arm64-cross \
+      libgmock-dev:amd64 \
+      libgtest-dev:amd64 \
+      libspdlog-dev:amd64 \
+      libspdlog-dev:arm64 \
+      libyaml-cpp-dev:amd64 \
+      libyaml-cpp-dev:arm64 \
       netcat-openbsd \
+      ninja-build \
       openssh-client \
       pkg-config \
       procps \
@@ -40,6 +49,7 @@ RUN apt-get update \
       python3-pip \
       python3-venv \
       ripgrep \
+      rsync \
       tree \
       unzip \
       wget \
@@ -98,8 +108,8 @@ RUN node -e '\
 # version because its plugin-install behavior is part of the runtime contract.
 RUN npm install --global --no-audit --no-fund --allow-scripts=pnpm "pnpm@${PNPM_VERSION}"
 
-RUN mkdir --parents /var/lib/dsh /workspace /opt/dsh \
- && chown --recursive dsh:dsh /var/lib/dsh /workspace /opt/dsh /home/dsh
+RUN mkdir --parents /var/cache/ccache /var/lib/dsh /workspace /opt/dsh \
+ && chown --recursive dsh:dsh /var/cache/ccache /var/lib/dsh /workspace /opt/dsh /home/dsh
 
 COPY --chown=dsh:dsh web.cordis.yml /opt/dsh/web.cordis.yml
 COPY --chown=dsh:dsh dsh-entrypoint.sh /opt/dsh/dsh-entrypoint.sh
