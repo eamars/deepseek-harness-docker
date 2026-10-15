@@ -273,6 +273,13 @@ Back up `dsh-home` before an upgrade: the entrypoint may migrate persistent
 presets and install a new market version. Stop the stack separately with
 `docker compose down` when needed.
 
+DSH 0.2 removed the `{{cwd}}` prompt variable; only `{{provider}}` and
+`{{model}}` remain. A persona `prefix`/`suffix` that still uses `{{cwd}}` fails
+every turn with `unknown prompt variable "{{cwd}}"`. The model now always gets
+the session's current directory as user context, so reword such a persona to
+refer to that instead. Check `profiles/<name>/cordis.patch.yml` and
+`.agent-presets/*/agent.cordis.yml` in `dsh-home` after an upgrade.
+
 The named volumes are preserved by `docker compose down`. Do not add `-v`
 unless you intend to remove the persisted Harness settings, credentials,
 sessions, workspace, and local certificate authority.
