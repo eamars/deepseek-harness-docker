@@ -211,6 +211,18 @@ volume. An inherited `DEEPSEEK_API_KEY` has operator precedence and is
 read-only in the UI, so leave that environment value empty when the Models
 page should own the official DeepSeek credential.
 
+### Claude models
+
+Anthropic is a built-in catalog provider. In **Settings → Models**, choose
+Anthropic and enter the API key. The model list comes from the pi-ai catalog
+bundled with DSH, not from Anthropic's API, so a new Claude model appears only
+after a DSH release ships a newer catalog. DSH 0.1.7 (pi-ai 0.85.1) stopped at
+`claude-opus-5` and `claude-sonnet-5`. DSH 0.2.1 (pi-ai 1.2.0) lists
+`claude-opus-5-5`, `claude-sonnet-5-5` and `claude-haiku-5-5`. To use a model
+the catalog does not have yet, add a custom provider with the
+`anthropic-messages` protocol and base URL `https://api.anthropic.com`; its
+**Fetch available models** queries `/v1/models` directly.
+
 ### Vision models
 
 DSH only offers image attachment for models that explicitly declare image
