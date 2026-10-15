@@ -63,4 +63,6 @@ if [[ ! -f "${market_manifest}" ]]; then
   exit 1
 fi
 
-exec dsh web --patch /opt/dsh/web.cordis.yml "$@"
+# DSH binds 127.0.0.1:3080 by default; Caddy shares the host network and
+# proxies it. The container has no browser to open.
+exec dsh web --no-open "$@"

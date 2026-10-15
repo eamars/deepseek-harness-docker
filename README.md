@@ -1,10 +1,27 @@
 # DeepSeek Harness Docker deployment
 
-This directory runs the official DeepSeek Harness Web UI in Docker with the
+This directory runs the DeepSeek Harness Web UI in Docker with the
 community dsh-market plugin preconfigured. The
 container stores Harness settings, credentials, profiles, and sessions in the
 named `dsh-home` volume. The workspace is mounted at `/workspace` and defaults
 to the persistent `dsh-workspace` volume.
+
+## DSH source
+
+DSH comes from the [eamars/deepseek-harness](https://github.com/eamars/deepseek-harness)
+fork, at the same commit Asuna runs: branch `asuna/0.2.1-alpha.2`, commit
+`aeb7e47cf2`. That branch is the `0.2.1-alpha.2` release plus two commits in
+`dsh-client-ui-chat` and `dsh-client-ui-renderer`. The image installs
+`@deepseek-ai/dsh@0.2.1-alpha.2` from npm. A builder stage builds those two
+packages from the fork commit, and the image puts them in place of the npm
+copies. The build fails if the fork's DSH version or an installed copy differs
+from `DSH_VERSION`.
+
+To follow a new Asuna version, set `DSH_FORK_COMMIT` and `DSH_VERSION`
+together. Asuna's `tools/dsh-inline/source.json` names both. If the new
+branch changes other packages, extend the copy step in `Dockerfile`. The image
+labels `dsh.version`, `dsh.fork.repository` and `dsh.fork.commit` record what
+was built.
 
 ## Configuration
 
@@ -26,10 +43,11 @@ but a different market version installed from the Web UI is replaced by the
 image's pin at the next restart. Override `DSH_MARKET_VERSION` and `PNPM_VERSION`
 in `.env` (or the Portainer stack environment) and rebuild to change these pins.
 
-The Web overlay enables the built-in `dsh-schedule` module. The optional
-`dsh-time-context` module is intentionally not mounted, so new cycles do not
-receive an extra time-context prompt. Schedule reminders remain enabled and
-persist in the session event log; they do not depend on time-context.
+The image runs the stock `web` profile with no overlay. From DSH 0.2 the profile
+mounts `dsh-schedule` and the reminder catalog (`ui-schedule`) itself. The
+`standard`, `cordis` and `ptc` agent presets also mount `dsh-time-context`, so
+new cycles get the time-context prompt. Earlier versions of this deployment
+left it out.
 
 ## Raspberry Pi 5 cross compilation
 
@@ -72,14 +90,15 @@ Pi OS/Linux userspace; it does not execute the result on the Docker host.
 
 Deploy this directory or its Git repository as a stack on a Linux Docker
 server. The build context must contain `compose.yaml`, `Dockerfile`,
-`dsh-entrypoint.sh`, and `web.cordis.yml`. The Caddy configuration is embedded
+`dsh-entrypoint.sh`, and `dsh-lan-patch.mjs`. The Docker server needs GitHub
+access at build time to fetch the fork. The Caddy configuration is embedded
 in `compose.yaml`, and
 the workspace uses a named volume by default, so no additional files or host
 directories are required. Set `DSH_WORKSPACE` when a host directory should be
 used instead.
 
-Both services use host networking. Harness discovers the Docker server's LAN
-interfaces through its built-in all-interface runtime, and Caddy derives the
+Both services use host networking. Harness listens on `127.0.0.1:3080` only,
+because DSH 0.2 refuses wildcard binds. Caddy serves the LAN and derives the
 certificate address from the destination of each TLS connection. No LAN IP
 address or hostname is configured in the stack.
 
@@ -136,8 +155,9 @@ Standard HTTP redirects automatically:
 http://DOCKER-SERVER-IP/
 ```
 
-Ports 80, 443, and 3080 must be available on the Docker server. Port 3080 is
-the Harness listener used by the local Caddy reverse proxy.
+Ports 80 and 443, and loopback port 3080, must be free on the Docker server.
+Port 3080 is the Harness listener used by the local Caddy reverse proxy. It is
+not reachable from the LAN.
 
 The service uses `pull_policy: build`, so Compose rebuilds the local image each
 time the stack is started or refreshed.
@@ -146,19 +166,19 @@ time the stack is started or refreshed.
 
 Upstream DSH `0.1.2-rc.1` moved settings, credentials, and model discovery
 behind loopback checks; DSH `0.1.7-rc.2` also requires a browser token/cookie
-for page and RPC access. This image patches the served
-`dsh-client-connection` bundle during `docker build`: the browser reports
-loopback (`isLoopback: true`), and the server's page/RPC authentication methods
-are replaced with the LAN deployment's unauthenticated policy. The patch is
-checked against the pinned package's method signatures and fails the build if
-upstream changes them. Combined with Caddy's existing `header_up Host
+for page and RPC access. During `docker build`, `dsh-lan-patch.mjs` patches the
+served `dsh-client-connection` bundle. The browser reports loopback
+(`isLoopback: true`). The server's page/RPC authentication methods are
+replaced with the LAN deployment's unauthenticated policy. Asuna's container
+applies the same patch. The build fails if upstream changes the patched code.
+Combined with Caddy's existing `header_up Host
 localhost:3080` / `Origin http://localhost:3080`, the server-side Host/Origin
 trust check passes and **Settings → Models** works from the LAN HTTPS URL
 without an SSH tunnel.
 
 This matches the existing trust posture of this deployment: the LAN firewall
 is the access boundary. If you prefer upstream's stricter loopback-only
-behavior, remove the client-patch block from `Dockerfile`; you would then need
+behavior, remove the `dsh-lan-patch.mjs` step from `Dockerfile`; you would then need
 to use `http://localhost:3080/` on the Docker host or an SSH tunnel for
 Settings → Models.
 
@@ -279,6 +299,7 @@ prevents recurrence. Do not disable seccomp to hide this failure.
 
 ## Upstream references
 
+- <https://github.com/eamars/deepseek-harness> (the fork this image builds from)
 - <https://github.com/deepseek-ai/deepseek-harness>
 - <https://github.com/deepseek-ai/deepseek-harness/blob/master/docs/user/guide/index.md>
 - <https://github.com/deepseek-ai/deepseek-harness/blob/master/apps/cli/reference/README.md>

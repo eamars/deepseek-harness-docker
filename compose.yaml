@@ -8,8 +8,10 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        DSH_VERSION: ${DSH_VERSION:-0.1.7-rc.2}
-        DSH_MARKET_VERSION: ${DSH_MARKET_VERSION:-1.66.2}
+        DSH_VERSION: ${DSH_VERSION:-0.2.1-alpha.2}
+        DSH_FORK_REPOSITORY: ${DSH_FORK_REPOSITORY:-https://github.com/eamars/deepseek-harness.git}
+        DSH_FORK_COMMIT: ${DSH_FORK_COMMIT:-aeb7e47cf23e0329685e3354659ae61c87bc807d}
+        DSH_MARKET_VERSION: ${DSH_MARKET_VERSION:-1.66.22}
         PNPM_VERSION: ${PNPM_VERSION:-12.4.2}
 
     image: deepseek-harness:local
@@ -20,8 +22,8 @@ services:
       DSH_HOME: /var/lib/dsh
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
 
-    # Host networking exposes the Docker server's real interfaces to Harness.
-    # Its built-in all-interface runtime discovers and trusts the LAN IPs.
+    # Host networking lets Caddy reach Harness on host loopback. Harness binds
+    # 127.0.0.1:3080 only; DSH 0.2 refuses wildcard binds.
     network_mode: host
 
     volumes:
@@ -38,7 +40,7 @@ services:
         - CMD
         - node
         - -e
-        - "fetch('http://localhost:3080/').then(response => process.exit(response.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
+        - "fetch('http://127.0.0.1:3080/').then(response => process.exit(response.status < 500 ? 0 : 1)).catch(() => process.exit(1))"
       interval: 5s
       timeout: 3s
       retries: 30
@@ -77,7 +79,7 @@ services:
                 on_demand
             }
 
-            reverse_proxy localhost:3080 {
+            reverse_proxy 127.0.0.1:3080 {
                 # This presents a loopback authority to Harness's server-side
                 # /api fence. The Dockerfile patches the browser client to also
                 # report loopback, so Settings > Models works from LAN HTTPS.

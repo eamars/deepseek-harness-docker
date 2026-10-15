@@ -1,10 +1,57 @@
+# DSH comes from the eamars/deepseek-harness fork at the commit Asuna runs
+# (branch asuna/0.2.1-alpha.2). That branch is the npm 0.2.1-alpha.2 release
+# plus commits in ui-chat and ui-renderer only, so the image installs the
+# release and replaces those two packages with builds from the fork commit.
+ARG DSH_VERSION=0.2.1-alpha.2
+ARG DSH_FORK_REPOSITORY=https://github.com/eamars/deepseek-harness.git
+ARG DSH_FORK_COMMIT=aeb7e47cf23e0329685e3354659ae61c87bc807d
+
+FROM node:24-trixie-slim AS dsh-fork
+
+ARG DSH_VERSION
+ARG DSH_FORK_REPOSITORY
+ARG DSH_FORK_COMMIT
+
+ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
+
+RUN apt-get update \
+ && apt-get install --yes --no-install-recommends ca-certificates git \
+ && rm -rf /var/lib/apt/lists/* \
+ && corepack enable
+
+WORKDIR /src
+
+# Fetch the pinned commit itself, so a moved branch tip cannot change the build.
+# The fork must extend the same DSH release that npm installs below.
+RUN git init --quiet \
+ && git remote add origin "${DSH_FORK_REPOSITORY}" \
+ && git fetch --quiet --depth 1 origin "${DSH_FORK_COMMIT}" \
+ && git checkout --quiet FETCH_HEAD \
+ && test "$(node -p 'require("./apps/cli/package.json").version')" = "${DSH_VERSION}"
+
+# The same build steps Asuna uses for these packages: frozen dependencies
+# without lifecycle scripts, Host contributions before the client typecheck,
+# then one bundle per package (they depend on each other).
+RUN pnpm install --frozen-lockfile --ignore-scripts \
+ && pnpm exec tsc -b tsconfig.host.json --pretty false \
+ && pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host \
+ && pnpm exec tsc -b packages/client/ui-chat/tsconfig.json --pretty false \
+ && pnpm --filter @deepseek-ai/dsh-client-ui-renderer bundle \
+ && pnpm --filter @deepseek-ai/dsh-client-ui-chat bundle
+
 # Trixie base so the distro python3 tracks the newest supported minor (3.13)
 # for node-gyp native builds and in-container development use.
 FROM node:24-trixie-slim
 
-ARG DSH_VERSION=0.1.7-rc.2
-ARG DSH_MARKET_VERSION=1.66.2
+ARG DSH_VERSION
+ARG DSH_FORK_REPOSITORY
+ARG DSH_FORK_COMMIT
+ARG DSH_MARKET_VERSION=1.66.22
 ARG PNPM_VERSION=12.4.2
+
+LABEL dsh.version="${DSH_VERSION}" \
+      dsh.fork.repository="${DSH_FORK_REPOSITORY}" \
+      dsh.fork.commit="${DSH_FORK_COMMIT}"
 
 ENV NODE_ENV=production \
     DSH_HOME=/var/lib/dsh \
@@ -66,43 +113,27 @@ RUN npm install --global --no-audit --no-fund --foreground-scripts \
       --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs \
       "@deepseek-ai/dsh@${DSH_VERSION}"
 
-# The DSH web client intentionally keeps settings/credentials on the browser
-# loopback origin. This deployment already fronts DSH with Caddy, which rewrites
-# the upstream Host/Origin to localhost for the server-side /api fence. To keep
-# Settings > Models usable from the LAN HTTPS URL on current DSH versions, also
-# tell the browser-side connection that it is on a loopback authority. The LAN
-# firewall remains the deployment access boundary, matching this repo's existing
-# all-interface design.
-# This LAN deployment deliberately removes DSH's browser token/cookie gate; the
-# Docker host/LAN boundary is the access boundary for this instance.
-RUN node -e '\
-  const fs = require("node:fs");\
-  const clientPath = require.resolve("@deepseek-ai/dsh-client-connection/client", {\
-    paths: ["/usr/local/lib/node_modules/@deepseek-ai/dsh"]\
-  });\
-  const clientFile = fs.readFileSync(clientPath, "utf8");\
-  const pattern = /isLoopback:\s*(?:transport\?\.ownsHost === true \|\| )?pageLocation === void 0 \|\| isLoopbackHostname\(pageLocation\.hostname\),/;\
-  if (!pattern.test(clientFile)) {\
-    throw new Error("dsh client-connection loopback expression not found; update the Dockerfile patch");\
-  }\
-  fs.writeFileSync(clientPath, clientFile.replace(pattern, "isLoopback: true,"));\
-  const serverPath = require.resolve("@deepseek-ai/dsh-client-connection", {\
-    paths: ["/usr/local/lib/node_modules/@deepseek-ai/dsh"]\
-  });\
-  let serverFile = fs.readFileSync(serverPath, "utf8");\
-  const replaceMethod = (name, params, body) => {\
-    const start = serverFile.indexOf("\n\t" + name + "(" + params + ") {");\
-    const end = start < 0 ? -1 : serverFile.indexOf("\n\t}", start);\
-    if (start < 0 || end < 0) {\
-      throw new Error("dsh client-connection " + name + " method not found; update the LAN auth patch");\
-    }\
-    serverFile = serverFile.slice(0, start) + "\n\t" + name + "(" + params + ") {\n\t\t" + body + "\n\t}" + serverFile.slice(end + 3);\
-  };\
-  replaceMethod("authenticatedUrl", "baseUrl", "const url = new URL(baseUrl); url.pathname = \"/\"; url.search = \"\"; url.hash = \"\"; return url.href;");\
-  replaceMethod("authorizeIndex", "request, response", "return true;");\
-  replaceMethod("isAuthenticated", "request", "return true;");\
-  fs.writeFileSync(serverPath, serverFile);\
-'
+# Replace the two fork-changed packages wherever npm placed them. Each copy
+# must be the release the fork extends.
+COPY --from=dsh-fork /src/packages/client/ui-chat/lib /tmp/dsh-fork/ui-chat
+COPY --from=dsh-fork /src/packages/client/ui-renderer/lib /tmp/dsh-fork/ui-renderer
+RUN set -e; \
+    for name in ui-chat ui-renderer; do \
+      dirs="$(find /usr/local/lib/node_modules -type d -path "*/@deepseek-ai/dsh-client-${name}")"; \
+      test -n "${dirs}"; \
+      for dir in ${dirs}; do \
+        test "$(node -p "require('${dir}/package.json').version")" = "${DSH_VERSION}"; \
+        rm -rf "${dir}/lib"; \
+        cp -r "/tmp/dsh-fork/${name}" "${dir}/lib"; \
+        test -f "${dir}/lib/index.js" && test -f "${dir}/lib/client.js"; \
+      done; \
+    done; \
+    rm -rf /tmp/dsh-fork
+
+# This LAN deployment removes DSH's browser token/cookie gate and reports a
+# loopback authority to the browser client; see dsh-lan-patch.mjs.
+COPY dsh-lan-patch.mjs /tmp/dsh-lan-patch.mjs
+RUN node /tmp/dsh-lan-patch.mjs && rm /tmp/dsh-lan-patch.mjs
 
 # The DSH plugin manager delegates profile installs to pnpm. Pin the tested
 # version because its plugin-install behavior is part of the runtime contract.
@@ -111,7 +142,6 @@ RUN npm install --global --no-audit --no-fund --allow-scripts=pnpm "pnpm@${PNPM_
 RUN mkdir --parents /var/cache/ccache /var/lib/dsh /workspace /opt/dsh \
  && chown --recursive dsh:dsh /var/cache/ccache /var/lib/dsh /workspace /opt/dsh /home/dsh
 
-COPY --chown=dsh:dsh web.cordis.yml /opt/dsh/web.cordis.yml
 COPY --chown=dsh:dsh dsh-entrypoint.sh /opt/dsh/dsh-entrypoint.sh
 
 USER dsh
