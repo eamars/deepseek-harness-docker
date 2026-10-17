@@ -9,10 +9,10 @@ to the persistent `dsh-workspace` volume.
 ## DSH source
 
 DSH comes from the [eamars/deepseek-harness](https://github.com/eamars/deepseek-harness)
-fork, at the same commit Asuna runs: branch `asuna/0.2.1-alpha.2`, commit
-`aeb7e47cf2`. That branch is the `0.2.1-alpha.2` release plus two commits in
+fork, at the same commit Asuna runs: branch `asuna/0.2.1-rc.1`, commit
+`d67d7cf4fd`. That branch is the `0.2.1-rc.1` release plus two commits in
 `dsh-client-ui-chat` and `dsh-client-ui-renderer`. The image installs
-`@deepseek-ai/dsh@0.2.1-alpha.2` from npm. A builder stage builds those two
+`@deepseek-ai/dsh@0.2.1-rc.1` from npm. A builder stage builds those two
 packages from the fork commit, and the image puts them in place of the npm
 copies. The build fails if the fork's DSH version or an installed copy differs
 from `DSH_VERSION`.

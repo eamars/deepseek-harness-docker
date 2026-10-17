@@ -1,10 +1,10 @@
 # DSH comes from the eamars/deepseek-harness fork at the commit Asuna runs
-# (branch asuna/0.2.1-alpha.2). That branch is the npm 0.2.1-alpha.2 release
+# (branch asuna/0.2.1-rc.1). That branch is the npm 0.2.1-rc.1 release
 # plus commits in ui-chat and ui-renderer only, so the image installs the
 # release and replaces those two packages with builds from the fork commit.
-ARG DSH_VERSION=0.2.1-alpha.2
+ARG DSH_VERSION=0.2.1-rc.1
 ARG DSH_FORK_REPOSITORY=https://github.com/eamars/deepseek-harness.git
-ARG DSH_FORK_COMMIT=aeb7e47cf23e0329685e3354659ae61c87bc807d
+ARG DSH_FORK_COMMIT=d67d7cf4fd17d2810efd7b514fec9e765326da75
 
 FROM node:24-trixie-slim AS dsh-fork
 
