@@ -294,6 +294,17 @@ the session's current directory as user context, so reword such a persona to
 refer to that instead. Check `profiles/<name>/cordis.patch.yml` and
 `.agent-presets/*/agent.cordis.yml` in `dsh-home` after an upgrade.
 
+An upgrade can also leave a custom agent preset naming a plugin row that DSH
+renamed or removed (0.2.2 dropped `@deepseek-ai/dsh-tool-subagent-control/list-agents`;
+its main entry registers `list_agents`). DSH then refuses the whole preset:
+every session on it disappears from the list and shows "Session unavailable",
+and DSH itself logs nothing. On each start the entrypoint asks DSH's preset
+registry for its diagnostics and prints one line to the container log:
+`agent presets: all N load`, or a `WARNING` naming each preset that cannot
+load and why. In this deployment the presets DSH loads are the `insert`
+blocks in `profiles/web/cordis.patch.yml`; fix the named row there and
+restart the container.
+
 The named volumes are preserved by `docker compose down`. Do not add `-v`
 unless you intend to remove the persisted Harness settings, credentials,
 sessions, workspace, and local certificate authority.

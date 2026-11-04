@@ -63,6 +63,48 @@ if [[ ! -f "${market_manifest}" ]]; then
   exit 1
 fi
 
+# A preset with a row that cannot start (a plugin a DSH upgrade renamed or
+# removed) is refused as a whole, and every session on it vanishes from the
+# list as "Session unavailable" while DSH logs nothing. Once DSH answers, ask
+# its preset registry for its diagnostics and print them to the container log.
+# The double fork hands the checker to the init process, which reaps it.
+report_agent_presets() {
+  node <<'NODE'
+const url = 'http://127.0.0.1:3080/api/agentPresets/list';
+const say = line => process.stderr.write(`agent presets: ${line}\n`);
+const call = async () => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ type: 'client-request', rpcId: crypto.randomUUID(), method: 'agentPresets/list', payload: { args: {} } }),
+  });
+  if (!response.ok) throw new Error(`HTTP ${response.status}`);
+  const { result } = await response.json();
+  if (!result?.ok) throw new Error(result?.error?.message ?? 'no result');
+  return result.value.presets;
+};
+(async () => {
+  let lastError;
+  for (let attempt = 0; attempt < 60; attempt++) {
+    try {
+      const presets = await call();
+      if (presets.length === 0) throw new Error('the registry lists no presets yet');
+      const broken = presets.filter(preset => preset.broken !== undefined);
+      for (const preset of broken) say(`WARNING ${preset.id}${preset.isDefault ? ' (default)' : ''} cannot load, so its sessions are unavailable: ${preset.broken}`);
+      say(broken.length === 0 ? `all ${presets.length} load` : `${broken.length} of ${presets.length} cannot load; fix them in profiles/web/cordis.patch.yml`);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  }
+  say(`WARNING the check could not run (${lastError?.message}); check ${url} by hand`);
+})();
+NODE
+}
+
+( report_agent_presets & )
+
 # DSH binds 127.0.0.1:3080 by default; Caddy shares the host network and
 # proxies it. The container has no browser to open.
 exec dsh web --no-open "$@"
