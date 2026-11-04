@@ -1,16 +1,22 @@
 # DSH comes from the eamars/deepseek-harness fork at the commit Asuna runs
-# (branch asuna/0.2.1-rc.1). That branch is the npm 0.2.1-rc.1 release
-# plus commits in ui-chat and ui-renderer only, so the image installs the
-# release and replaces those two packages with builds from the fork commit.
-ARG DSH_VERSION=0.2.1-rc.1
+# (Asuna's tools/dsh-inline/source.json: branch asuna/0.2.2-alpha.3). That
+# branch is the npm 0.2.2-alpha.3 release plus commits in the packages named
+# by DSH_FORK_PACKAGES, so the image installs the release and replaces those
+# packages' lib with builds from the fork commit. These pins live here only;
+# compose passes an override when one is set in the environment.
+ARG DSH_VERSION=0.2.2-alpha.3
 ARG DSH_FORK_REPOSITORY=https://github.com/eamars/deepseek-harness.git
-ARG DSH_FORK_COMMIT=d67d7cf4fd17d2810efd7b514fec9e765326da75
+ARG DSH_FORK_COMMIT=4a4f9f1d77532afeb1fd776019d0f463d0b721cc
+ARG DSH_UPSTREAM_REPOSITORY=https://github.com/deepseek-ai/deepseek-harness.git
+ARG DSH_FORK_PACKAGES="client/ui-chat client/ui-renderer compaction/compaction-basic"
 
 FROM node:24-trixie-slim AS dsh-fork
 
 ARG DSH_VERSION
 ARG DSH_FORK_REPOSITORY
 ARG DSH_FORK_COMMIT
+ARG DSH_UPSTREAM_REPOSITORY
+ARG DSH_FORK_PACKAGES
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 
@@ -29,15 +35,32 @@ RUN git init --quiet \
  && git checkout --quiet FETCH_HEAD \
  && test "$(node -p 'require("./apps/cli/package.json").version')" = "${DSH_VERSION}"
 
-# The same build steps Asuna uses for these packages: frozen dependencies
-# without lifecycle scripts, Host contributions before the client typecheck,
-# then one bundle per package (they depend on each other).
+# Every package the fork changes relative to the release tag must be replaced
+# below; otherwise the image would quietly run the release copy of it.
+RUN git fetch --quiet --depth 1 "${DSH_UPSTREAM_REPOSITORY}" "refs/tags/dsh-v${DSH_VERSION}" \
+ && changed="$(git diff --name-only FETCH_HEAD HEAD -- packages | cut -d/ -f2-3 | sort -u)" \
+ && echo "Fork packages changed since dsh-v${DSH_VERSION}:" ${changed} \
+ && for dir in ${changed}; do \
+      case " ${DSH_FORK_PACKAGES} " in \
+        *" ${dir} "*) ;; \
+        *) echo "packages/${dir} differs from dsh-v${DSH_VERSION} but is not in DSH_FORK_PACKAGES" >&2; exit 1 ;; \
+      esac; \
+    done
+
+# The same build steps Asuna uses (its tools/build_dsh_inline.mjs): frozen
+# dependencies without lifecycle scripts, DSH's own Host library build, the
+# client typecheck, then one bundle per client package (they depend on each
+# other, so one at a time).
 RUN pnpm install --frozen-lockfile --ignore-scripts \
- && pnpm exec tsc -b tsconfig.host.json --pretty false \
- && pnpm exec tsdown --config-loader native --env.DSH_BUILD_FACE host \
+ && pnpm exec tsx scripts/compile-referenced-projects.ts host-libraries \
  && pnpm exec tsc -b packages/client/ui-chat/tsconfig.json --pretty false \
  && pnpm --filter @deepseek-ai/dsh-client-ui-renderer bundle \
- && pnpm --filter @deepseek-ai/dsh-client-ui-chat bundle
+ && pnpm --filter @deepseek-ai/dsh-client-ui-chat bundle \
+ && for dir in ${DSH_FORK_PACKAGES}; do \
+      name="$(node -p "require('./packages/${dir}/package.json').name")" \
+      && mkdir -p "/fork-lib/${name}" \
+      && cp -r "packages/${dir}/lib/." "/fork-lib/${name}/"; \
+    done
 
 # Trixie base so the distro python3 tracks the newest supported minor (3.13)
 # for node-gyp native builds and in-container development use.
@@ -46,12 +69,14 @@ FROM node:24-trixie-slim
 ARG DSH_VERSION
 ARG DSH_FORK_REPOSITORY
 ARG DSH_FORK_COMMIT
+ARG DSH_FORK_PACKAGES
 ARG DSH_MARKET_VERSION=1.66.22
 ARG PNPM_VERSION=12.4.2
 
 LABEL dsh.version="${DSH_VERSION}" \
       dsh.fork.repository="${DSH_FORK_REPOSITORY}" \
-      dsh.fork.commit="${DSH_FORK_COMMIT}"
+      dsh.fork.commit="${DSH_FORK_COMMIT}" \
+      dsh.fork.packages="${DSH_FORK_PACKAGES}"
 
 ENV NODE_ENV=production \
     DSH_HOME=/var/lib/dsh \
@@ -113,21 +138,26 @@ RUN npm install --global --no-audit --no-fund --foreground-scripts \
       --allow-scripts=@deepseek-ai/dsh-subprocess-local,koffi,node-pty,@google/genai,protobufjs \
       "@deepseek-ai/dsh@${DSH_VERSION}"
 
-# Replace the two fork-changed packages wherever npm placed them. Each copy
-# must be the release the fork extends.
-COPY --from=dsh-fork /src/packages/client/ui-chat/lib /tmp/dsh-fork/ui-chat
-COPY --from=dsh-fork /src/packages/client/ui-renderer/lib /tmp/dsh-fork/ui-renderer
+# Replace each fork-changed package's lib wherever npm placed it. Each copy
+# must be the release the fork extends, and the fork build must provide every
+# top-level entry of the released lib.
+COPY --from=dsh-fork /fork-lib /tmp/dsh-fork
 RUN set -e; \
-    for name in ui-chat ui-renderer; do \
-      dirs="$(find /usr/local/lib/node_modules -type d -path "*/@deepseek-ai/dsh-client-${name}")"; \
-      test -n "${dirs}"; \
+    cd /tmp/dsh-fork; \
+    for name in @deepseek-ai/*; do \
+      dirs="$(find /usr/local/lib/node_modules -type d -path "*/node_modules/${name}")"; \
+      test -n "${dirs}" || { echo "${name} is not installed" >&2; exit 1; }; \
       for dir in ${dirs}; do \
         test "$(node -p "require('${dir}/package.json').version")" = "${DSH_VERSION}"; \
+        for entry in $(ls "${dir}/lib"); do \
+          test -e "/tmp/dsh-fork/${name}/${entry}" || { echo "fork build of ${name} lacks lib/${entry}" >&2; exit 1; }; \
+        done; \
         rm -rf "${dir}/lib"; \
         cp -r "/tmp/dsh-fork/${name}" "${dir}/lib"; \
-        test -f "${dir}/lib/index.js" && test -f "${dir}/lib/client.js"; \
+        echo "Replaced ${dir}/lib from the fork"; \
       done; \
     done; \
+    cd /; \
     rm -rf /tmp/dsh-fork
 
 # This LAN deployment removes DSH's browser token/cookie gate and reports a

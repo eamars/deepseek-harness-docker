@@ -9,18 +9,29 @@ to the persistent `dsh-workspace` volume.
 ## DSH source
 
 DSH comes from the [eamars/deepseek-harness](https://github.com/eamars/deepseek-harness)
-fork, at the same commit Asuna runs: branch `asuna/0.2.1-rc.1`, commit
-`d67d7cf4fd`. That branch is the `0.2.1-rc.1` release plus two commits in
-`dsh-client-ui-chat` and `dsh-client-ui-renderer`. The image installs
-`@deepseek-ai/dsh@0.2.1-rc.1` from npm. A builder stage builds those two
-packages from the fork commit, and the image puts them in place of the npm
-copies. The build fails if the fork's DSH version or an installed copy differs
-from `DSH_VERSION`.
+fork, at the same commit Asuna runs: branch `asuna/0.2.2-alpha.3`, commit
+`4a4f9f1d77`. That branch is the `0.2.2-alpha.3` release plus commits in
+`dsh-client-ui-chat`, `dsh-client-ui-renderer` (Asuna's native chat
+composition) and `dsh-compaction-basic` (`compactNow` takes an optional
+`keepFrom`; with no options it behaves as the release). The image installs
+`@deepseek-ai/dsh@0.2.2-alpha.3` from npm. A builder stage builds the fork
+commit with Asuna's build steps, and the image puts the `lib` of each package
+in `DSH_FORK_PACKAGES` in place of the npm copy. This is the same composition
+Asuna runs.
 
-To follow a new Asuna version, set `DSH_FORK_COMMIT` and `DSH_VERSION`
-together. Asuna's `tools/dsh-inline/source.json` names both. If the new
-branch changes other packages, extend the copy step in `Dockerfile`. The image
-labels `dsh.version`, `dsh.fork.repository` and `dsh.fork.commit` record what
+The build fails when:
+
+- the fork's DSH version or an installed copy differs from `DSH_VERSION`;
+- the fork changes a package under `packages/` (compared with upstream's
+  `dsh-v<DSH_VERSION>` tag) that `DSH_FORK_PACKAGES` does not name;
+- the fork build lacks a top-level `lib` entry the release has.
+
+To follow a new Asuna version, copy `commit` and `dsh` from Asuna's
+`tools/dsh-inline/source.json` into `DSH_FORK_COMMIT` and `DSH_VERSION` in
+`Dockerfile`, the one place the pins live. If the build then names a package
+that is not in `DSH_FORK_PACKAGES`, add it there, and add its build step if
+DSH's Host library build does not produce it. The image labels `dsh.version`,
+`dsh.fork.repository`, `dsh.fork.commit` and `dsh.fork.packages` record what
 was built.
 
 ## Configuration
@@ -121,21 +132,20 @@ entrypoint can install the pinned market package into the persistent profile.
 
 ## Session-local scheduling
 
-The model can use `schedule_create`, `schedule_list`, and `schedule_delete` to
-create reminders. Schedule supports positive `after_seconds` delays, explicit
-absolute `at` targets, and fixed-rate `every_seconds` intervals of at least five
-minutes. Absolute local times must include an explicit `UTC` or IANA time zone.
-The optional time-context plugin can help interpret browser-local natural
-language, but it is disabled in this deployment and never supplies a persistent
-default zone.
+From DSH 0.2.2 the model's Schedule tools are `schedule_create`,
+`schedule_list`, `schedule_view` and `schedule_edit` (`action: "update"` or
+`"delete"`; `schedule_update` and `schedule_delete` are gone). A task is
+created with a `title`, a `prompt`, an `rrule` (one `DTSTART` line and one
+`RRULE` line, for example
+`DTSTART;TZID=Pacific/Auckland:20261106T090000` + `RRULE:FREQ=DAILY`) and a
+`target`: `this_session` delivers into the calling Session, `new_once` and
+`new` start new Sessions. The tools read and change every task on this
+Harness, not only the calling Session's. Existing reminders keep their timing
+and delivery. Prompts or skills in `dsh-home` that name the old tools or
+timing selectors (`after_seconds`, `at`, `every_seconds`) need rewording.
 
-Reminders belong to their original Harness Session and persist with the
-session event log in `dsh-home`. Delivery is session-local: the Session must
-be live for an on-time follow-up. If the container or Session is cold, the
-reminder remains persisted and is handled when that Session is resumed. This
-module is not a general Cron runner and does not send operating-system, email,
-SMS, or other external notifications. Recurring reminders are fixed intervals,
-not calendar or Cron expressions.
+Tasks persist in `dsh-home`. This module does not send operating-system,
+email, SMS, or other external notifications.
 
 ## LAN access
 
@@ -166,9 +176,9 @@ time the stack is started or refreshed.
 
 Upstream DSH `0.1.2-rc.1` moved settings, credentials, and model discovery
 behind loopback checks; DSH `0.1.7-rc.2` also requires a browser token/cookie
-for page and RPC access. During `docker build`, `dsh-lan-patch.mjs` patches the
-served `dsh-client-connection` bundle. The browser reports loopback
-(`isLoopback: true`). The server's page/RPC authentication methods are
+for page and RPC access. During `docker build`, `dsh-lan-patch.mjs` patches
+`dsh-client-connection`: both client bundles (`client.browser.js`, which the
+page loads, and `client.node.js`) report loopback (`isLoopback: true`). The server's page/RPC authentication methods are
 replaced with the LAN deployment's unauthenticated policy. Asuna's container
 applies the same patch. The build fails if upstream changes the patched code.
 Combined with Caddy's existing `header_up Host
@@ -181,6 +191,10 @@ is the access boundary. If you prefer upstream's stricter loopback-only
 behavior, remove the `dsh-lan-patch.mjs` step from `Dockerfile`; you would then need
 to use `http://localhost:3080/` on the Docker host or an SSH tunnel for
 Settings → Models.
+
+The model's side of the network is open too: since DSH 0.2.1 `web_fetch`
+reaches loopback and private-LAN addresses (the container shares the host
+network), where earlier releases refused them.
 
 ## Model server and API key selection
 
@@ -207,9 +221,9 @@ server's reachable hostname or address instead.
 The OpenAI-compatible adapter expects a non-empty key even when the local
 server ignores authentication; a placeholder value is sufficient in that
 case. Provider settings and UI-entered credentials persist in the `dsh-home`
-volume. An inherited `DEEPSEEK_API_KEY` has operator precedence and is
-read-only in the UI, so leave that environment value empty when the Models
-page should own the official DeepSeek credential.
+volume. Since DSH 0.2.1 a key saved in the Models page takes precedence over
+an inherited `DEEPSEEK_API_KEY`; the environment value applies only while no
+key is saved under that name.
 
 ### Claude models
 

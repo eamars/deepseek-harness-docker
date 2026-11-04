@@ -7,12 +7,15 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # The pins live in the Dockerfile. Each name here passes an override
+      # only when it is set in the environment (.env or the Portainer stack).
       args:
-        DSH_VERSION: ${DSH_VERSION:-0.2.1-rc.1}
-        DSH_FORK_REPOSITORY: ${DSH_FORK_REPOSITORY:-https://github.com/eamars/deepseek-harness.git}
-        DSH_FORK_COMMIT: ${DSH_FORK_COMMIT:-d67d7cf4fd17d2810efd7b514fec9e765326da75}
-        DSH_MARKET_VERSION: ${DSH_MARKET_VERSION:-1.66.22}
-        PNPM_VERSION: ${PNPM_VERSION:-12.4.2}
+        - DSH_VERSION
+        - DSH_FORK_REPOSITORY
+        - DSH_FORK_COMMIT
+        - DSH_FORK_PACKAGES
+        - DSH_MARKET_VERSION
+        - PNPM_VERSION
 
     image: deepseek-harness:local
     pull_policy: build
